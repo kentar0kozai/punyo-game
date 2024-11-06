@@ -10,6 +10,12 @@
             border: 1px solid black;
         }
     </style>
+    <script>
+        // 右クリックを禁止する
+        document.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+        });
+    </script>
 </head>
 
 <body>
@@ -128,9 +134,8 @@
             const [offsetX, offsetY] = getRotationOffset(rotationState);
             board[currentY + offsetY][currentX + offsetX] = nextpunyo;
 
-            // 上端に達したらリセット
             if (currentY === 0 || (currentY + offsetY === 0)) {
-                alert("Game Over!"); // ゲームオーバーのメッセージを表示
+                alert("Game Over!");
                 resetGame();
                 return;
             }
