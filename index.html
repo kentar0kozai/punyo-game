@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>punyo Game</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="gameCanvas" width="320" height="480"></canvas>
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const ROWS = 12;
+        const COLS = 8;
+        const CELL_SIZE = 40;
+        const COLORS = ["red", "blue", "green", "yellow", "purple"];
+        let board = Array.from({ length: ROWS }, () => Array(COLS).fill("_"));
+        let currentpunyo, nextpunyo, currentX, currentY, rotationState, lastFallTime;
+        let totalDeletedInstances = 0;
+        let leftMoveTime, rightMoveTime, downMoveTime;
+        const MOVE_INTERVAL = 100;
+
+        function resetGame() {
+            board = Array.from({ length: ROWS }, () => Array(COLS).fill("_"));
+            currentpunyo = null;
+            nextpunyo = null;
+            currentX = Math.floor(COLS / 2);
+            currentY = 1;
+            rotationState = 0;
+            lastFallTime = Date.now();
+            totalDeletedInstances = 0;
+            score = 0;
+            leftMoveTime = rightMoveTime = downMoveTime = Date.now();
+            addNewpunyo();
+        }
+
+        function addNewpunyo() {
+            currentpunyo = randomColor();
+            nextpunyo = randomColor();
+            currentX = Math.floor(COLS / 2);
+            currentY = 1;
+            rotationState = 0;
+        }
+
+        function randomColor() {
+            return COLORS[Math.floor(Math.random() * COLORS.length)];
+        }
+
+        function drawBoard() {
+            // ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] !== "_") {
+                        ctx.fillStyle = board[r][c];
+                        ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+
+            if (currentpunyo) {
+                ctx.fillStyle = currentpunyo;
+                ctx.fillRect(currentX * CELL_SIZE, currentY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                const [offsetX, offsetY] = getRotationOffset(rotationState);
+                const nextX = currentX + offsetX;
+                const nextY = currentY + offsetY;
+                if (nextY >= 0) {
+                    ctx.fillStyle = nextpunyo;
+                    ctx.fillRect(nextX * CELL_SIZE, nextY * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                }
+            }
+
+            ctx.fillStyle = "white";
+            ctx.font = "20px Arial";
+            ctx.fillText(`Deleted: ${totalDeletedInstances}`, 10, 20);
+        }
+
+        function getRotationOffset(state) {
+            if (state === 0) return [0, -1];
+            if (state === 1) return [1, 0];
+            if (state === 2) return [0, 1];
+            if (state === 3) return [-1, 0];
+        }
+
+        function gameLoop() {
+            const now = Date.now();
+            if (now - lastFallTime > 1000) {
+                moveDown();
+                lastFallTime = now;
+            }
+            drawBoard();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function moveDown() {
+            if (canMoveDown()) {
+                currentY++;
+            } else {
+                placepunyo();
+                addNewpunyo();
+                processBoard();
+            }
+        }
+
+        function canMoveDown() {
+            const [offsetX, offsetY] = getRotationOffset(rotationState);
+            return (
+                currentY + 1 < ROWS &&
+                board[currentY + 1][currentX] === "_" &&
+                currentY + offsetY + 1 < ROWS &&
+                board[currentY + offsetY + 1][currentX + offsetX] === "_"
+            );
+        }
+
+        function placepunyo() {
+            board[currentY][currentX] = currentpunyo;
+            const [offsetX, offsetY] = getRotationOffset(rotationState);
+            board[currentY + offsetY][currentX + offsetX] = nextpunyo;
+
+            // 上端に達したらリセット
+            if (currentY === 0 || (currentY + offsetY === 0)) {
+                alert("Game Over!"); // ゲームオーバーのメッセージを表示
+                resetGame();
+                return;
+            }
+
+            processBoard();
+        }
+
+        function processBoard() {
+            const labels = labelBoard();
+            const toRemove = findLargeLabels(labels);
+            let deletedCount = 0;
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (toRemove.has(labels[r][c])) {
+                        board[r][c] = "_";
+                        deletedCount++;
+                    }
+                }
+            }
+            totalDeletedInstances += deletedCount;
+
+            applyGravity();
+
+            return deletedCount;
+        }
+
+        function labelBoard() {
+            const labels = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+            let labelCounter = 1;
+
+            function dfs(r, c, char) {
+                if (r < 0 || r >= ROWS || c < 0 || c >= COLS || labels[r][c] > 0 || board[r][c] !== char) return;
+                labels[r][c] = labelCounter;
+                [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dr, dc]) => dfs(r + dr, c + dc, char));
+            }
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] !== "_" && labels[r][c] === 0) {
+                        dfs(r, c, board[r][c]);
+                        labelCounter++;
+                    }
+                }
+            }
+            return labels;
+        }
+
+        function findLargeLabels(labels) {
+            const labelCounts = {};
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (labels[r][c] > 0) {
+                        labelCounts[labels[r][c]] = (labelCounts[labels[r][c]] || 0) + 1;
+                    }
+                }
+            }
+            return new Set(Object.keys(labelCounts).filter(label => labelCounts[label] >= 4).map(Number));
+        }
+
+        function applyGravity() {
+            for (let c = 0; c < COLS; c++) {
+                let columnValues = [];
+                for (let r = 0; r < ROWS; r++) {
+                    if (board[r][c] !== "_") columnValues.push(board[r][c]);
+                }
+                for (let r = 0; r < ROWS; r++) {
+                    board[r][c] = r < ROWS - columnValues.length ? "_" : columnValues[r - (ROWS - columnValues.length)];
+                }
+            }
+        }
+
+        document.addEventListener("keydown", (e) => {
+            const now = Date.now();
+            if (e.key === "ArrowLeft" && now - leftMoveTime >= MOVE_INTERVAL) {
+                moveLeft();
+                leftMoveTime = now;
+            } else if (e.key === "ArrowRight" && now - rightMoveTime >= MOVE_INTERVAL) {
+                moveRight();
+                rightMoveTime = now;
+            } else if (e.key === "ArrowDown" && now - downMoveTime >= MOVE_INTERVAL) {
+                if (canMoveDown()) moveDown();
+                downMoveTime = now;
+            } else if (e.key === " ") rotatepunyo();
+        });
+
+        function moveRight() {
+            const [offsetX, offsetY] = getRotationOffset(rotationState);
+            const nextX = currentX + 1;
+            const nextNextX = currentX + 1 + offsetX;
+            const nextY = currentY;
+            const nextNextY = currentY + offsetY;
+
+            if (
+                nextX < COLS &&
+                nextNextX < COLS &&
+                board[nextY][nextX] === "_" &&
+                board[nextNextY][nextNextX] === "_"
+            ) {
+                currentX += 1;
+            }
+        }
+
+        function moveLeft() {
+            const [offsetX, offsetY] = getRotationOffset(rotationState);
+            const nextX = currentX - 1;
+            const nextNextX = currentX - 1 + offsetX;
+            const nextY = currentY;
+            const nextNextY = currentY + offsetY;
+
+            if (
+                nextX >= 0 &&
+                nextNextX >= 0 &&
+                board[nextY][nextX] === "_" &&
+                board[nextNextY][nextNextX] === "_"
+            ) {
+                currentX -= 1;
+            }
+        }
+        function rotatepunyo() {
+            const newRotationState = (rotationState + 1) % 4;
+            const [offsetX, offsetY] = getRotationOffset(newRotationState);
+            const nextX = currentX + offsetX;
+            const nextY = currentY + offsetY;
+
+            if (
+                nextX >= 0 && nextX < COLS &&
+                nextY >= 0 && nextY < ROWS &&
+                board[nextY][nextX] === "_"
+            ) {
+                rotationState = newRotationState;
+            }
+        }
+
+        resetGame();
+        gameLoop();
+    </script>
+
+</body>
+
+</html>
